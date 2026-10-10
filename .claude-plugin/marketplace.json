@@ -1,0 +1,6 @@
+{
+  "name": "vfm-mods",
+  "description": "Mod Claude Code của VFM: hiển thị tiến độ, cảnh báo lệnh nguy hiểm, chặn xoá database, theo dõi subagent bằng tiếng Việt.",
+  "owner": { "name": "VFM", "email": "contact@vfmtech.vn" },
+  "plugins": [{ "name": "tien-do", "source": "./tien-do" }]
+}

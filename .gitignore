@@ -1,0 +1,4 @@
+.DS_Store
+node_modules/
+# engine-generated editor types, rewritten on every load
+.claude-plugin/types/

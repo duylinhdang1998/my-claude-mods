@@ -1,0 +1,29 @@
+{
+  "name": "tien-do",
+  "version": "0.2.0",
+  "description": "Ẩn lệnh bash và code dài, thay bằng tên việc đang làm, % tiến độ và thời gian ước tính; gọi tên rõ các lệnh xoá/nguy hiểm; chặn cứng lệnh xoá database khi người dùng chưa yêu cầu; theo dõi từng subagent (tên, việc, %, thời gian còn lại).",
+  "author": { "name": "VFM", "email": "contact@vfmtech.vn" },
+  "userConfig": {
+    "xacNhanLenhNguyHiem": {
+      "type": "boolean",
+      "title": "Hỏi lại trước lệnh nguy hiểm",
+      "description": "Khi Claude được phép tự chạy (auto mode, allow rule, bypass), vẫn dừng lại hỏi bạn trước lệnh xoá hoặc lệnh nguy hiểm. Khi Claude vốn đã phải xin phép, hộp xin phép sẽ ghi rõ tên việc nguy hiểm.",
+      "required": false,
+      "default": true
+    },
+    "soDongCodeToiDa": {
+      "type": "number",
+      "title": "Số dòng code tối đa trước khi thu gọn",
+      "description": "Khối code trong câu trả lời dài hơn số dòng này sẽ được thu gọn thành một dòng tóm tắt. Gõ /chi-tiet để xem lại đầy đủ.",
+      "required": false,
+      "default": 12
+    },
+    "huongDanClaude": {
+      "type": "boolean",
+      "title": "Hướng dẫn Claude báo tiến độ",
+      "description": "Thêm một đoạn ngắn vào system prompt nhắc Claude: mô tả lệnh bằng tiếng Việt, lập danh sách việc để tính %, đặt tên và mô tả cho subagent.",
+      "required": false,
+      "default": true
+    }
+  }
+}
