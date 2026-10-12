@@ -7,10 +7,12 @@ import {
   conLai,
   dongDau,
   dongHo,
+  fileTuGitLog,
   kyVongMacDinh,
   nguoiDungYeuCauXoaDb,
   nhanDienMcpXoaDb,
   nhanDienNguyHiem,
+  nguyHiemPushXoaFile,
   soDong,
   tenSubagent,
   tenViecCongCu,
@@ -18,9 +20,10 @@ import {
   thuGonCode,
   tienDoTheoGio,
   tienDoTheoViec,
+  timLenhPush,
   tomTatNguyHiem,
 } from './lib'
-import type { NguyHiem, TienDo, TrangThaiViec, Viec } from './lib'
+import type { BoiCanh, LenhPush, NguyHiem, TienDo, TrangThaiViec, Viec } from './lib'
 
 const CHINH = 'main'
 const CONG_CU_AGENT = new Set(['Agent', 'Task'])
@@ -60,6 +63,12 @@ let demSub = 0
 /** Tin nhắn gần nhất NGƯỜI DÙNG gõ (prompt.submit — subagent không đi qua đây).
  *  Rỗng sau mỗi lần nạp lại mod: mặc định là chưa cho phép xoá database. */
 let tinNhanNguoiDung = ''
+/** Gốc project + thư mục shell lúc gọi Bash gần nhất: lệnh xoá nằm trong project chạy bình thường. */
+let boiCanh: BoiCanh | undefined
+/** Việc nguy hiểm đã tính cho từng lần gọi Bash (có cả phần phải chạy git mới biết), để vẽ transcript. */
+const nguyHiemTheoTuid = new Map<string, NguyHiem[]>()
+/** Kết quả của lệnh Bash vừa xét: tool.call hỏi tool.check cùng lệnh, khỏi chạy git hai lần. */
+let vuaTinh: { lenh: string; ds: NguyHiem[] } | undefined
 const keHoach = new Map<string, KeHoach>()
 const subs = new Map<string, Sub>()
 const agentSangTuid = new Map<string, string>()
@@ -154,7 +163,7 @@ const nhanHang = (tool: string, inputRaw: unknown, tuid: string, bayGio: number)
   const input = banGhi(inputRaw)
   if (tool === 'Bash') {
     const lenh = laChuoi(input.command) ? input.command : ''
-    const nh = nhanDienNguyHiem(lenh)
+    const nh = nguyHiemTheoTuid.get(tuid) ?? nhanDienNguyHiem(lenh, boiCanh)
     if (nh.length > 0) {
       const t = tomTatNguyHiem(nh)
       return { chu: `${nh.some(x => x.xoaDatabase) ? '⛔' : '⚠'} ${t.cau}`, mau: t.mucDo === 'cao' ? 'error' : 'warning', dam: true }
@@ -257,6 +266,41 @@ async function congXoaDatabase($: EngineInterface, ds: NguyHiem[], nguon: string
   return traLoi === 'Cho chạy' ? undefined : { deny: `Người dùng đã chặn việc xoá database (${cau}). Không thử cách khác; hỏi lại người dùng.` }
 }
 
+async function layBoiCanh($: EngineInterface): Promise<BoiCanh | undefined> {
+  try {
+    const [duAn, thuMuc] = await Promise.all([$.session.root(), $.session.cwd()])
+    boiCanh = { duAn, thuMuc }
+  } catch {
+    // không biết project ở đâu: mọi lệnh xoá vẫn bị coi là nguy hiểm như cũ
+  }
+  return boiCanh
+}
+
+/** File bị xoá trong các commit sắp đẩy (chưa có trên remote). undefined khi git không trả lời được. */
+async function fileXoaKhiPush($: EngineInterface, p: LenhPush): Promise<string[] | undefined> {
+  try {
+    const { exitCode, stdout } = await $.process.run(
+      ['git', 'log', '--diff-filter=D', '--name-only', '--pretty=format:', ...p.doiSoLog, '--'],
+      { ...(p.thuMuc ? { cwd: p.thuMuc } : {}), timeoutMs: 15_000 },
+    )
+    return exitCode === 0 ? fileTuGitLog(stdout) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Mọi việc nguy hiểm của một lệnh Bash: theo mẫu chữ, cộng các lần push có commit xoá file. */
+async function nguyHiemBash($: EngineInterface, lenh: string): Promise<NguyHiem[]> {
+  const ds = nhanDienNguyHiem(lenh, await layBoiCanh($))
+  for (const p of timLenhPush(lenh, boiCanh?.thuMuc)) {
+    const files = await fileXoaKhiPush($, p)
+    if (files === undefined) {
+      ds.push({ nhan: 'Đẩy code lên remote (không kiểm tra được có xoá file không)', doiTuong: p.doiSoLog.join(' '), mucDo: 'cao', batBuocHoi: true })
+    } else if (files.length > 0) ds.push(nguyHiemPushXoaFile(files))
+  }
+  return ds
+}
+
 export const register: Register = (on, options) => {
   const tuyChon = banGhi(options)
   const xacNhan = tuyChon.xacNhanLenhNguyHiem !== false
@@ -348,6 +392,7 @@ export const register: Register = (on, options) => {
     const kh = keHoach.get(CHINH)
     if (kh && kh.viec.every(v => v.trangThai === 'completed')) keHoach.delete(CHINH)
     for (const [k, s] of subs) if (s.trangThai !== 'dang-chay') subs.delete(k)
+    if (nguyHiemTheoTuid.size > 200) nguyHiemTheoTuid.clear()
     ve()
     return next(e)
   })
@@ -465,17 +510,22 @@ export const register: Register = (on, options) => {
 
   // ───────────────────────── lệnh nguy hiểm ─────────────────────────
 
+  // Lệnh xoá file nằm trong project chạy bình thường; push có commit xoá file thì luôn hỏi.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    const ds = nhanDienNguyHiem(e.command)
+    const ds = await nguyHiemBash($, e.command)
+    vuaTinh = { lenh: e.command, ds }
     if (ds.length === 0) return next(e)
+    nguyHiemTheoTuid.set(e.tool_use_id, ds)
+    ve()
     const nguon = subTheoAgent(e.agentId)?.ten ?? 'Claude'
     if (ds.some(x => x.xoaDatabase)) {
       const chan = await congXoaDatabase($, ds, nguon)
       return chan ?? next(e)
     }
     const { cau, mucDo } = tomTatNguyHiem(ds)
+    const xoaKhiPush = ds.some(x => x.batBuocHoi)
     $.ui.log(`⚠ ${nguon} sắp làm việc nguy hiểm — ${cau}`)
-    if (!xacNhan) return next(e)
+    if (!xacNhan && !xoaKhiPush) return next(e)
 
     // Engine sẽ tự xin phép (hoặc tự chặn) thì không hỏi thêm lần nữa.
     let quyetDinh = 'ask'
@@ -490,7 +540,7 @@ export const register: Register = (on, options) => {
     try {
       traLoi = await $.ui.ask(`⚠ ${nguon} muốn: ${cau}. Cho phép chạy?`, {
         options: ['Cho chạy', 'Chặn'],
-        header: mucDo === 'cao' ? 'Nguy hiểm' : 'Cẩn thận',
+        header: xoaKhiPush ? 'Push xoá file' : mucDo === 'cao' ? 'Nguy hiểm' : 'Cẩn thận',
       })
     } catch {
       // bị đóng, hoặc không có ai để hỏi (claude -p): giữ "Chặn"
@@ -525,7 +575,8 @@ export const register: Register = (on, options) => {
     if (d.decision !== 'ask') return d
     const lenh = banGhi(e.input).command
     if (!laChuoi(lenh)) return d
-    const ds = nhanDienNguyHiem(lenh)
+    const ds = vuaTinh?.lenh === lenh ? vuaTinh.ds : await nguyHiemBash($, lenh)
+    vuaTinh = undefined
     if (ds.length === 0) return d
     return { ...d, reason: `⚠ ${tomTatNguyHiem(ds).cau}` }
   })

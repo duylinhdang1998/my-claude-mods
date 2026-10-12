@@ -1,7 +1,7 @@
 {
   "name": "tien-do",
-  "version": "0.2.0",
-  "description": "Ẩn lệnh bash và code dài, thay bằng tên việc đang làm, % tiến độ và thời gian ước tính; gọi tên rõ các lệnh xoá/nguy hiểm; chặn cứng lệnh xoá database khi người dùng chưa yêu cầu; theo dõi từng subagent (tên, việc, %, thời gian còn lại).",
+  "version": "0.3.0",
+  "description": "Ẩn lệnh bash và code dài, thay bằng tên việc đang làm, % tiến độ và thời gian ước tính; lệnh xoá trong project chạy bình thường; hỏi trước khi push commit có xoá file; gọi tên rõ các lệnh nguy hiểm khác; chặn cứng lệnh xoá database khi người dùng chưa yêu cầu; theo dõi từng subagent (tên, việc, %, thời gian còn lại).",
   "author": { "name": "VFM", "email": "contact@vfmtech.vn" },
   "userConfig": {
     "xacNhanLenhNguyHiem": {

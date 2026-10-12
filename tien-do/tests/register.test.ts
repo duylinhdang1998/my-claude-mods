@@ -75,7 +75,7 @@ describe('lệnh nguy hiểm', () => {
     })
 
     await $.session.start(PHIEN)
-    const kq = await $.tool.call({ tool: 'Bash', command: 'rm -rf build', description: 'Dọn thư mục build' })
+    const kq = await $.tool.call({ tool: 'Bash', command: 'rm -rf /tmp/build', description: 'Dọn thư mục build' })
     expect(daChay).toBe(false)
     expect(kq.deny ?? kq.text ?? '').toContain('chặn')
   })
@@ -92,13 +92,13 @@ describe('lệnh nguy hiểm', () => {
       props: {
         tool_use_id: 'u1',
         tool: 'Bash',
-        input: { command: 'rm -rf build', description: 'Dọn build' },
+        input: { command: 'rm -rf /tmp/build', description: 'Dọn build' },
         isRunning: true,
         isErrored: false,
         isInterrupted: false,
       },
     })
-    expect((await ui.find({ type: 'Text', text: /Xoá thư mục: build/ }))?.text).toContain('⚠')
+    expect((await ui.find({ type: 'Text', text: /Xoá thư mục: \/tmp\/build/ }))?.text).toContain('⚠')
   })
 
   test('lệnh thường hiện tên việc, không hiện script', async ($, on) => {

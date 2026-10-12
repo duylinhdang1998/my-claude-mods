@@ -11,7 +11,12 @@ export type NguyHiem = {
   mucDo: MucDo
   /** Làm mất dữ liệu database: bị chặn cứng nếu tin nhắn của người dùng chưa yêu cầu. */
   xoaDatabase?: boolean
+  /** Luôn hỏi người dùng, kể cả khi tắt "Hỏi lại trước lệnh nguy hiểm" (vd push có commit xoá file). */
+  batBuocHoi?: boolean
 }
+
+/** Thư mục gốc của project và thư mục shell đang đứng, để biết lệnh xoá có nằm trong project không. */
+export type BoiCanh = { duAn: string; thuMuc?: string }
 
 export type TrangThaiViec = 'pending' | 'in_progress' | 'completed'
 
@@ -148,16 +153,80 @@ function nguyHiemSql(sql: string, them: (nhan: string, doiTuong: string, mucDo: 
   }
 }
 
-/** Nhận diện lệnh xoá / nguy hiểm trong một lệnh Bash. Trả về mọi việc nguy hiểm tìm thấy. */
-export function nhanDienNguyHiem(lenh: string, doSau = 0): NguyHiem[] {
+/** Gộp `.` và `..` của một đường dẫn tuyệt đối. */
+function chuanHoa(duongDan: string): string {
+  const out: string[] = []
+  for (const p of duongDan.split('/')) {
+    if (p === '' || p === '.') continue
+    if (p === '..') out.pop()
+    else out.push(p)
+  }
+  return '/' + out.join('/')
+}
+
+/** Đường dẫn tuyệt đối của một đối số, hoặc undefined khi không chắc (biến, ~, thư mục shell không rõ). */
+function duongDanTuyetDoi(dich: string, thuMuc: string | undefined): string | undefined {
+  if (!dich || /[$`~]/.test(dich)) return undefined
+  if (dich.startsWith('/')) return chuanHoa(dich)
+  return thuMuc ? chuanHoa(`${thuMuc}/${dich}`) : undefined
+}
+
+/**
+ * Đích xoá có nằm hẳn bên trong project không. Không tính: chính thư mục gốc (trừ khi
+ * `choPhepGoc`), thư mục `.git`, và mọi đường dẫn không chắc chắn.
+ */
+function trongDuAn(dich: string, bc: BoiCanh, thuMuc: string | undefined, choPhepGoc = false): boolean {
+  const abs = duongDanTuyetDoi(dich, thuMuc)
+  const goc = chuanHoa(bc.duAn)
+  if (!abs) return false
+  if (abs === goc) return choPhepGoc
+  if (!abs.startsWith(goc === '/' ? '/' : goc + '/')) return false
+  const tuongDoi = abs.slice(goc.length).replace(/^\//, '')
+  return tuongDoi.split('/')[0] !== '.git'
+}
+
+/** Thư mục shell sau lệnh `cd`; undefined khi không đoán được (`cd`, `cd -`, `cd ~`, có biến). */
+function sauCd(ds: readonly string[], thuMuc: string | undefined): string | undefined {
+  const dich = ds[1]
+  if (dich === undefined || dich === '-') return undefined
+  return duongDanTuyetDoi(dich, thuMuc)
+}
+
+const DIEU_KIEN_FIND = /^-(i?name|i?path|i?wholename|i?regex|type|newer\w*|mtime|mmin|atime|amin|ctime|cmin|empty|size|user|group)$/
+
+/**
+ * Lệnh xoá file nằm hẳn trong project: chạy bình thường, không hỏi. Không tính:
+ * xoá diện rộng (`.`, `*`, gốc project), xoá `.git`, file dữ liệu database, có sudo,
+ * hoặc đường dẫn không chắc nằm trong project.
+ */
+function laXoaTrongDuAn(lenhChinh: string, ds: readonly string[], bc: BoiCanh, thuMuc: string | undefined): boolean {
+  if (lenhChinh === 'rm' || lenhChinh === 'rmdir' || lenhChinh === 'unlink') {
+    const dich = ds.slice(1).filter(a => !a.startsWith('-'))
+    return dich.length > 0 && dich.every(d => !DUONG_DAN_RONG.test(d) && !DUONG_DAN_DATABASE.test(d) && trongDuAn(d, bc, thuMuc))
+  }
+  if (lenhChinh === 'find') {
+    const i = ds.findIndex((a, k) => k > 0 && (a.startsWith('-') || a === '(' || a === '!'))
+    const goc = ds.slice(1, i < 0 ? undefined : i)
+    const coDieuKien = ds.some(a => DIEU_KIEN_FIND.test(a))
+    return coDieuKien && (goc.length === 0 ? trongDuAn('.', bc, thuMuc, true) : goc.every(g => trongDuAn(g, bc, thuMuc, true)))
+  }
+  return false
+}
+
+/**
+ * Nhận diện lệnh xoá / nguy hiểm trong một lệnh Bash. Trả về mọi việc nguy hiểm tìm thấy.
+ * Có `bc` (thư mục project): lệnh xoá file nằm hẳn trong project không bị tính là nguy hiểm.
+ */
+export function nhanDienNguyHiem(lenh: string, bc?: BoiCanh, doSau = 0): NguyHiem[] {
   const ketQua: NguyHiem[] = []
   const them = (nhan: string, doiTuong: string, mucDo: MucDo, xoaDatabase = false) => {
     const dt = rutGon(doiTuong, 80)
     if (ketQua.some(k => k.nhan === nhan && k.doiTuong === dt)) return
     ketQua.push(xoaDatabase ? { nhan, doiTuong: dt, mucDo, xoaDatabase } : { nhan, doiTuong: dt, mucDo })
   }
+  let thuMuc = bc ? (bc.thuMuc ?? bc.duAn) : undefined
   const longVao = (con: string) => {
-    if (doSau < 3) for (const k of nhanDienNguyHiem(con, doSau + 1)) them(k.nhan, k.doiTuong, k.mucDo, k.xoaDatabase)
+    if (doSau < 3) for (const k of nhanDienNguyHiem(con, bc && { ...bc, thuMuc }, doSau + 1)) them(k.nhan, k.doiTuong, k.mucDo, k.xoaDatabase)
   }
 
   const { dongLenh, than } = tachHeredoc(lenh)
@@ -169,6 +238,9 @@ export function nhanDienNguyHiem(lenh: string, doSau = 0): NguyHiem[] {
     const lenhChinh = tenFile(ds[0] ?? '')
     const coSudo = /^(sudo|doas)\b/.test(tho)
     const truoc = ketQua.length
+
+    if (lenhChinh === 'cd' || lenhChinh === 'pushd') { thuMuc = sauCd(ds, thuMuc); continue }
+    if (bc && !coSudo && laXoaTrongDuAn(lenhChinh, ds, bc, thuMuc)) continue
 
     // sh -c "…" / docker exec db bash -c "…": phần trong nháy là lệnh thật
     ds.forEach((a, i) => {
@@ -257,6 +329,82 @@ export function nhanDienNguyHiem(lenh: string, doSau = 0): NguyHiem[] {
     them('Ghi đè file hệ thống', dongLenh, 'cao')
   }
   return ketQua
+}
+
+export type LenhPush = {
+  /** Thư mục chạy git (đã tính `cd …` và `git -C …`); undefined = thư mục hiện tại. */
+  thuMuc?: string
+  /** Đối số cho `git log` để liệt kê commit sắp đẩy: ref nguồn rồi `--not --remotes…`. */
+  doiSoLog: string[]
+}
+
+const GIT_OPT_CO_GIA_TRI = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace'])
+const PUSH_OPT_CO_GIA_TRI = new Set(['-o', '--push-option', '--repo', '--receive-pack', '--exec'])
+
+/** Phân tích `git push …`: commit nào sẽ được đẩy. undefined khi push không đẩy commit nào (chỉ xoá nhánh). */
+function phanTichPush(thamSo: readonly string[]): string[] | undefined {
+  const vitri: string[] = []
+  const co: string[] = []
+  for (let i = 0; i < thamSo.length; i++) {
+    const a = thamSo[i] ?? ''
+    if (PUSH_OPT_CO_GIA_TRI.has(a)) { i++; continue }
+    if (a.startsWith('-')) co.push(a)
+    else vitri.push(a)
+  }
+  if (co.some(c => c === '--delete' || c === '-d')) return undefined
+  const remote = vitri[0]
+  // remote là URL / đường dẫn: không có nhánh theo dõi riêng, so với mọi remote
+  const loaiTru = remote && /^[\w.-]+$/.test(remote) ? `--remotes=${remote}` : '--remotes'
+  const nguon: string[] = []
+  if (co.some(c => c === '--all' || c === '--branches' || c === '--mirror')) nguon.push('--branches')
+  if (co.some(c => c === '--tags' || c === '--mirror')) nguon.push('--tags')
+  for (const ref of vitri.slice(1)) {
+    const src = ref.replace(/^\+/, '').split(':')[0] ?? ''
+    if (src) nguon.push(src)
+  }
+  if (nguon.length === 0) {
+    if (vitri.length > 1) return undefined // chỉ có refspec ":nhanh" (xoá nhánh)
+    nguon.push('HEAD')
+  }
+  return [...nguon, '--not', loaiTru]
+}
+
+/** Tìm các lệnh `git push` trong một lệnh Bash (kể cả trong `sh -c "…"`), kèm thư mục chạy. */
+export function timLenhPush(lenh: string, thuMucDau?: string, doSau = 0): LenhPush[] {
+  const out: LenhPush[] = []
+  let thuMuc = thuMucDau
+  for (const tho of tachDoan(tachHeredoc(lenh).dongLenh)) {
+    const ds = cacDoiSo(boTienTo(tho))
+    const lenhChinh = tenFile(ds[0] ?? '')
+    if (lenhChinh === 'cd' || lenhChinh === 'pushd') { thuMuc = sauCd(ds, thuMuc); continue }
+    ds.forEach((a, i) => {
+      if (doSau < 3 && SHELL.test(tenFile(a)) && ds[i + 1] === '-c' && ds[i + 2]) out.push(...timLenhPush(ds[i + 2] ?? '', thuMuc, doSau + 1))
+    })
+    if (lenhChinh !== 'git') continue
+    let i = 1
+    let thuMucGit = thuMuc
+    while (i < ds.length && (ds[i] ?? '').startsWith('-')) {
+      const a = ds[i] ?? ''
+      if (a === '-C') thuMucGit = duongDanTuyetDoi(ds[i + 1] ?? '', thuMucGit) ?? ds[i + 1]
+      i += GIT_OPT_CO_GIA_TRI.has(a) ? 2 : 1
+    }
+    if (ds[i] !== 'push') continue
+    const doiSoLog = phanTichPush(ds.slice(i + 1))
+    if (doiSoLog) out.push(thuMucGit ? { thuMuc: thuMucGit, doiSoLog } : { doiSoLog })
+  }
+  return out
+}
+
+/** Danh sách file bị xoá trong output `git log --name-only`: bỏ dòng trống, bỏ trùng. */
+export function fileTuGitLog(stdout: string): string[] {
+  return [...new Set(stdout.split('\n').map(s => s.trim()).filter(s => s.length > 0))]
+}
+
+/** Việc nguy hiểm "đẩy code có xoá file": luôn hỏi người dùng. */
+export function nguyHiemPushXoaFile(files: readonly string[]): NguyHiem {
+  const dau = files.slice(0, 5).join(', ')
+  const them = files.length > 5 ? ` (+${files.length - 5} file nữa)` : ''
+  return { nhan: `Đẩy code có XOÁ ${files.length} file lên remote`, doiTuong: dau + them, mucDo: 'cao', batBuocHoi: true }
 }
 
 /** Bỏ dấu tiếng Việt, chữ thường: "Xoá Database" → "xoa database". */

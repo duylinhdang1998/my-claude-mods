@@ -4,9 +4,11 @@ Mod này đổi cách Claude Code hiển thị khi làm việc:
 
 1. **Không còn lệnh bash / code dài loằng ngoằng.** Mỗi lệnh hiện thành một dòng tên việc, ví dụ `✓ Cài thư viện JavaScript`, `… Chạy test đăng nhập`, `✓ Sửa file app.ts (−3 +12 dòng)`. Kết quả lệnh thu gọn còn `⎿ xong · 120 dòng kết quả (đã ẩn)`; lỗi thì hiện dòng lỗi đầu tiên. Khối code dài trong câu trả lời thu gọn thành `▤ Đoạn ts · 85 dòng đã thu gọn`.
 2. **Bảng tiến độ phía trên ô nhập**: đang làm phần nào, thanh %, đã chạy bao lâu, còn khoảng bao lâu, và danh sách việc `✓ ▶ ○`.
-3. **Lệnh xoá / nguy hiểm được gọi tên rõ ràng**: `⚠ Xoá thư mục: build`, `⚠ Ghi đè lịch sử trên remote (force push): push --force origin main`, `⚠ Xoá bảng / cơ sở dữ liệu (DROP)`… Có một dòng cảnh báo trong transcript. Khi Claude vốn phải xin phép, hộp xin phép ghi tên việc nguy hiểm. Khi Claude được tự chạy (auto mode, allow rule, bypass), mod vẫn dừng lại hỏi bạn `Cho chạy / Chặn`.
-4. **Cấm xoá database khi bạn chưa yêu cầu.** `prisma migrate reset`, `prisma db push --force-reset/--accept-data-loss`, `docker compose down -v`, `docker volume rm/prune`, `dropdb`, `supabase db reset`, `redis-cli FLUSHALL`, SQL `DROP/TRUNCATE/DELETE không WHERE` gửi vào psql/mysql/sqlite3, và công cụ MCP như `reset_branch` / `execute_sql` có DROP — bị **chặn cứng** (`⛔`), kể cả ở auto/bypass mode và kể cả với subagent, trừ khi **chính tin nhắn bạn gõ** yêu cầu xoá (vd "reset database đi"). Câu phủ định ("đừng / cấm xoá db") hay câu hỏi ("có nên xoá db không?") không tính; tin đến từ kênh chat, peer, lịch chạy cũng không tính. Có yêu cầu rồi mod vẫn hỏi lại `Cho chạy / Chặn`.
-5. **Subagent có tên và tiến độ riêng**: `… Trinh sát #1 — Tìm file cấu hình ████░░ 60%~ · còn ~40 giây · 12 thao tác`, kèm dòng `đang: Đọc file config.ts`. Khi xong: `✓ Trinh sát #1 — … · xong sau 1:20`.
+3. **Lệnh xoá trong project chạy bình thường, không hỏi**: `rm -rf build`, `rm src/old.ts`, `cd app && rm -rf .next`, `find . -name "*.pyc" -delete`… nằm hẳn trong thư mục project thì chạy luôn. Vẫn bị coi là nguy hiểm: xoá ngoài project (`/tmp`, `~`, `../`), xoá diện rộng (`rm -rf .`, `rm -rf *`, cả thư mục gốc project), xoá `.git`, đường dẫn có biến (`$OUT/…`), `sudo rm`, `find … -delete` không có điều kiện lọc, và file dữ liệu database (vẫn bị chặn cứng như mục 5).
+4. **Push có commit xoá file thì hỏi bạn ngay.** Trước mỗi `git push`, mod xem các commit sắp đẩy (chưa có trên remote) có xoá file nào không; có thì dừng lại hỏi `Cho chạy / Chặn` kèm danh sách file, kể cả ở auto/bypass mode và kể cả khi tắt tuỳ chọn "Hỏi lại trước lệnh nguy hiểm". Không kiểm tra được (git lỗi) cũng hỏi. File chỉ đổi tên không tính là xoá.
+5. **Lệnh nguy hiểm khác được gọi tên rõ ràng**: `⚠ Xoá thư mục: /tmp/build`, `⚠ Ghi đè lịch sử trên remote (force push): push --force origin main`, `⚠ Xoá bảng / cơ sở dữ liệu (DROP)`… Có một dòng cảnh báo trong transcript. Khi Claude vốn phải xin phép, hộp xin phép ghi tên việc nguy hiểm. Khi Claude được tự chạy (auto mode, allow rule, bypass), mod vẫn dừng lại hỏi bạn `Cho chạy / Chặn`.
+6. **Cấm xoá database khi bạn chưa yêu cầu.** `prisma migrate reset`, `prisma db push --force-reset/--accept-data-loss`, `docker compose down -v`, `docker volume rm/prune`, `dropdb`, `supabase db reset`, `redis-cli FLUSHALL`, SQL `DROP/TRUNCATE/DELETE không WHERE` gửi vào psql/mysql/sqlite3, và công cụ MCP như `reset_branch` / `execute_sql` có DROP — bị **chặn cứng** (`⛔`), kể cả ở auto/bypass mode và kể cả với subagent, trừ khi **chính tin nhắn bạn gõ** yêu cầu xoá (vd "reset database đi"). Câu phủ định ("đừng / cấm xoá db") hay câu hỏi ("có nên xoá db không?") không tính; tin đến từ kênh chat, peer, lịch chạy cũng không tính. Có yêu cầu rồi mod vẫn hỏi lại `Cho chạy / Chặn`.
+7. **Subagent có tên và tiến độ riêng**: `… Trinh sát #1 — Tìm file cấu hình ████░░ 60%~ · còn ~40 giây · 12 thao tác`, kèm dòng `đang: Đọc file config.ts`. Khi xong: `✓ Trinh sát #1 — … · xong sau 1:20`.
 
 ## Cách tính % và thời gian còn lại
 
@@ -25,7 +27,7 @@ Mod này đổi cách Claude Code hiển thị khi làm việc:
 
 | Tuỳ chọn | Mặc định | Ý nghĩa |
 | --- | --- | --- |
-| Hỏi lại trước lệnh nguy hiểm | bật | Dừng hỏi `Cho chạy / Chặn` kể cả khi Claude được tự chạy |
+| Hỏi lại trước lệnh nguy hiểm | bật | Dừng hỏi `Cho chạy / Chặn` kể cả khi Claude được tự chạy. Push có xoá file luôn hỏi dù tắt tuỳ chọn này |
 | Số dòng code tối đa trước khi thu gọn | 12 | Khối code dài hơn sẽ thu gọn |
 | Hướng dẫn Claude báo tiến độ | bật | Thêm đoạn ngắn vào system prompt: mô tả lệnh bằng tiếng Việt, lập danh sách việc, đặt tên subagent |
 
@@ -49,7 +51,7 @@ Tắt mod: `/plugin` → tab **Installed** → disable `tien-do`.
 
 ## An toàn
 
-Mod chạy với quyền của bạn như mọi mod. Mod này chỉ đọc sự kiện của phiên, vẽ giao diện, lưu thời gian chạy trung bình của subagent vào kho riêng của mod, và hỏi bạn trước lệnh nguy hiểm. Mod không gọi mạng, không chạy tiến trình, không đọc file. Kiểm tra lại bằng:
+Mod chạy với quyền của bạn như mọi mod. Mod này chỉ đọc sự kiện của phiên, vẽ giao diện, lưu thời gian chạy trung bình của subagent vào kho riêng của mod, và hỏi bạn trước lệnh nguy hiểm. Mod không gọi mạng và không đọc file; tiến trình duy nhất nó chạy là `git log` (chỉ đọc) trước mỗi lần `git push` để tìm file bị xoá. Kiểm tra lại bằng:
 
 ```bash
 claude plugin validate ~/claude-mods/tien-do

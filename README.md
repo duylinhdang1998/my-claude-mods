@@ -4,7 +4,7 @@ Marketplace mod Claude Code của VFM (`vfm-mods`).
 
 | Mod | Làm gì |
 | --- | --- |
-| [`tien-do`](./tien-do) | Thay lệnh bash / code dài bằng tên việc + % tiến độ + thời gian ước tính; gọi tên lệnh nguy hiểm; **chặn cứng lệnh xoá database khi người dùng chưa yêu cầu**; theo dõi từng subagent. |
+| [`tien-do`](./tien-do) | Thay lệnh bash / code dài bằng tên việc + % tiến độ + thời gian ước tính; lệnh xoá trong project chạy bình thường, **hỏi trước khi push commit có xoá file**; gọi tên lệnh nguy hiểm khác; **chặn cứng lệnh xoá database khi người dùng chưa yêu cầu**; theo dõi từng subagent. |
 
 ## Cài
 
