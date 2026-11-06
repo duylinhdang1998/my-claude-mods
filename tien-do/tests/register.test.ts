@@ -63,21 +63,25 @@ describe('bảng tiến độ', () => {
 })
 
 describe('lệnh nguy hiểm', () => {
-  test('khi Claude được tự chạy, hỏi lại; bạn không đồng ý thì chặn', async ($, on) => {
+  test('khi Claude được tự chạy, lệnh nguy hiểm chạy luôn, không hỏi', async ($, on) => {
     mock.clock(on)
     nen(on)
     let daChay = false
+    let daHoi = false
     on('tool.check', () => ({ decision: 'allow' }))
-    on('tool.call', { tool: 'AskUserQuestion' }, () => ({ deny: 'đóng hộp hỏi' }))
+    on('tool.call', { tool: 'AskUserQuestion' }, () => {
+      daHoi = true
+      return { deny: 'đóng hộp hỏi' }
+    })
     on('tool.call', { tool: 'Bash' }, () => {
       daChay = true
       return { result: { stdout: '', stderr: '', interrupted: false } }
     })
 
     await $.session.start(PHIEN)
-    const kq = await $.tool.call({ tool: 'Bash', command: 'rm -rf /tmp/build', description: 'Dọn thư mục build' })
-    expect(daChay).toBe(false)
-    expect(kq.deny ?? kq.text ?? '').toContain('chặn')
+    await $.tool.call({ tool: 'Bash', command: 'rm -rf /tmp/build', description: 'Dọn thư mục build' })
+    expect(daHoi).toBe(false)
+    expect(daChay).toBe(true)
   })
 
   test('hàng trong transcript gọi tên việc nguy hiểm thay cho lệnh', async ($, on) => {

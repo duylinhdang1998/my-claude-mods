@@ -7,12 +7,10 @@ import {
   conLai,
   dongDau,
   dongHo,
-  fileTuGitLog,
   kyVongMacDinh,
   nguoiDungYeuCauXoaDb,
   nhanDienMcpXoaDb,
   nhanDienNguyHiem,
-  nguyHiemPushXoaFile,
   soDong,
   tenSubagent,
   tenViecCongCu,
@@ -20,10 +18,9 @@ import {
   thuGonCode,
   tienDoTheoGio,
   tienDoTheoViec,
-  timLenhPush,
   tomTatNguyHiem,
 } from './lib'
-import type { BoiCanh, LenhPush, NguyHiem, TienDo, TrangThaiViec, Viec } from './lib'
+import type { BoiCanh, NguyHiem, TienDo, TrangThaiViec, Viec } from './lib'
 
 const CHINH = 'main'
 const CONG_CU_AGENT = new Set(['Agent', 'Task'])
@@ -276,34 +273,13 @@ async function layBoiCanh($: EngineInterface): Promise<BoiCanh | undefined> {
   return boiCanh
 }
 
-/** File bị xoá trong các commit sắp đẩy (chưa có trên remote). undefined khi git không trả lời được. */
-async function fileXoaKhiPush($: EngineInterface, p: LenhPush): Promise<string[] | undefined> {
-  try {
-    const { exitCode, stdout } = await $.process.run(
-      ['git', 'log', '--diff-filter=D', '--name-only', '--pretty=format:', ...p.doiSoLog, '--'],
-      { ...(p.thuMuc ? { cwd: p.thuMuc } : {}), timeoutMs: 15_000 },
-    )
-    return exitCode === 0 ? fileTuGitLog(stdout) : undefined
-  } catch {
-    return undefined
-  }
-}
-
-/** Mọi việc nguy hiểm của một lệnh Bash: theo mẫu chữ, cộng các lần push có commit xoá file. */
+/** Mọi việc nguy hiểm của một lệnh Bash, theo mẫu chữ (lệnh xoá trong project không tính). */
 async function nguyHiemBash($: EngineInterface, lenh: string): Promise<NguyHiem[]> {
-  const ds = nhanDienNguyHiem(lenh, await layBoiCanh($))
-  for (const p of timLenhPush(lenh, boiCanh?.thuMuc)) {
-    const files = await fileXoaKhiPush($, p)
-    if (files === undefined) {
-      ds.push({ nhan: 'Đẩy code lên remote (không kiểm tra được có xoá file không)', doiTuong: p.doiSoLog.join(' '), mucDo: 'cao', batBuocHoi: true })
-    } else if (files.length > 0) ds.push(nguyHiemPushXoaFile(files))
-  }
-  return ds
+  return nhanDienNguyHiem(lenh, await layBoiCanh($))
 }
 
 export const register: Register = (on, options) => {
   const tuyChon = banGhi(options)
-  const xacNhan = tuyChon.xacNhanLenhNguyHiem !== false
   const toiDaCode = typeof tuyChon.soDongCodeToiDa === 'number' ? tuyChon.soDongCodeToiDa : 12
   const huongDan = tuyChon.huongDanClaude !== false
 
@@ -510,7 +486,8 @@ export const register: Register = (on, options) => {
 
   // ───────────────────────── lệnh nguy hiểm ─────────────────────────
 
-  // Lệnh xoá file nằm trong project chạy bình thường; push có commit xoá file thì luôn hỏi.
+  // Lệnh nguy hiểm: chỉ gọi tên và ghi một dòng cảnh báo, không hỏi thêm.
+  // Riêng xoá database: chặn cứng nếu người dùng chưa yêu cầu.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const ds = await nguyHiemBash($, e.command)
     vuaTinh = { lenh: e.command, ds }
@@ -522,34 +499,7 @@ export const register: Register = (on, options) => {
       const chan = await congXoaDatabase($, ds, nguon)
       return chan ?? next(e)
     }
-    const { cau, mucDo } = tomTatNguyHiem(ds)
-    const xoaKhiPush = ds.some(x => x.batBuocHoi)
-    $.ui.log(`⚠ ${nguon} sắp làm việc nguy hiểm — ${cau}`)
-    if (!xacNhan && !xoaKhiPush) return next(e)
-
-    // Engine sẽ tự xin phép (hoặc tự chặn) thì không hỏi thêm lần nữa.
-    let quyetDinh = 'ask'
-    try {
-      quyetDinh = (await $.tool.check({ tool: 'Bash', input: { command: e.command } })).decision
-    } catch {
-      quyetDinh = 'allow'
-    }
-    if (quyetDinh !== 'allow') return next(e)
-
-    let traLoi = 'Chặn'
-    try {
-      traLoi = await $.ui.ask(`⚠ ${nguon} muốn: ${cau}. Cho phép chạy?`, {
-        options: ['Cho chạy', 'Chặn'],
-        header: xoaKhiPush ? 'Push xoá file' : mucDo === 'cao' ? 'Nguy hiểm' : 'Cẩn thận',
-      })
-    } catch {
-      // bị đóng, hoặc không có ai để hỏi (claude -p): giữ "Chặn"
-    }
-    if (traLoi !== 'Cho chạy') {
-      return {
-        deny: `Người dùng đã chặn việc nguy hiểm này (${ds[0]?.nhan ?? 'lệnh nguy hiểm'}). Không thử cách khác để làm điều tương tự; hỏi lại người dùng trước.`,
-      }
-    }
+    $.ui.log(`⚠ ${nguon} sắp làm việc nguy hiểm — ${tomTatNguyHiem(ds).cau}`)
     return next(e)
   }).catch(($, e, next) =>
     next.called
