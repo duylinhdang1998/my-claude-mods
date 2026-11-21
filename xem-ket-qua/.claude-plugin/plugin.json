@@ -1,0 +1,6 @@
+{
+  "name": "xem-ket-qua",
+  "version": "0.1.0",
+  "description": "Claude cho bạn xem kết quả ngay trong terminal: ảnh, ảnh chụp trang HTML / localhost, trước và sau đặt cạnh nhau, kèm danh sách thay đổi và kiểm tra đã chạy.",
+  "author": { "name": "VFM", "email": "contact@vfmtech.vn" }
+}
